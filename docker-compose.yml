@@ -1,0 +1,27 @@
+---
+version: '3'
+services:
+  # azure-vote-back:
+  #   image: mcr.microsoft.com/oss/bitnami/redis:6.0.8
+  #   container_name: azure-vote-back
+  #   environment:
+  #     ALLOW_EMPTY_PASSWORD: "yes"
+  # azure-vote-front:
+  #   image: mcr.microsoft.com/azuredocs/azure-vote-front:v1
+  #   environment:
+  #     REDIS: azure-vote-back
+  #   ports:
+  #       - "${HOST_PORT:-8080}:80"
+  app_postgres:
+    image: docker.io/postgres:16
+    env_file: .env
+    environment:
+      - "PGDATA=/var/lib/postgresql/data/pgdata"
+
+    volumes:
+      - pgdata:/var/lib/postgresql/data/pgdata
+
+    ports:
+      - 15432:5432
+volumes:
+  pgdata: {}

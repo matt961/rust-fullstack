@@ -14,6 +14,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 deadpool = "0.9"
 deadpool-postgres = "0.10"
+figment = { version = "0.10.11", features = ["env", "json"] }
+tower-http = { version = "0.4.4", features = ["cors", "trace"] }
+axum-macros = "0.3.8"
+hyper = { version = "0.14.27", features = ["full"] }
 
 [dependencies.sqlx]
 version = "0.7"
