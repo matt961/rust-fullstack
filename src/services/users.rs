@@ -1,12 +1,17 @@
-use std::error::Error;
-
-use deadpool_postgres::{Object, Pool};
+use axum::async_trait;
+use diesel::prelude::*;
+use diesel_async::pooled_connection::deadpool::PoolError;
+use diesel_async::RunQueryDsl;
 use serde::{Deserialize, Serialize};
 
-use super::DbService;
+use crate::helpers::error::AppError;
 
-pub trait UserService {
-    fn get_users<T>(&self, offset: u64, limit: u64) -> T;
+use super::Pool;
+
+#[async_trait]
+pub trait UserService<E> {
+    async fn get_users(&self, offset: i32, limit: i64)
+        -> Result<Box<dyn Iterator<Item = User>>, E>;
 }
 
 #[derive(Clone)]
@@ -14,34 +19,28 @@ pub struct UserServiceDb {
     db: Pool,
 }
 
-impl UserServiceDb {
-    fn new(db: Pool) -> Self {
-        Self { db }
-    }
-}
-
-impl UserServiceDb {
-    pub async fn get_users(
+#[async_trait]
+impl UserService<AppError> for UserServiceDb {
+    async fn get_users(
         &self,
         offset: i32,
         limit: i64,
-    ) -> Result<impl Iterator<Item = User>, deadpool_postgres::PoolError> {
-        let conn = self.db.get().await?;
-        let users = conn
-            .query(
-                "select * from users where id >= $1 limit $2;",
-                &[&offset, &limit],
-            )
+    ) -> Result<Box<dyn Iterator<Item = User>>, AppError> {
+        use crate::schema::users::dsl::*;
+
+        let mut conn = self.db.get().await?;
+        let us: Vec<User> = users
+            .filter(id.gt(offset))
+            .limit(limit)
+            .select(User::as_select())
+            .load(&mut conn)
             .await?;
-        Ok(users.into_iter().map(|r| User {
-            id: r.get::<_, i32>("id").into(),
-            email: r.get::<_, String>("email"),
-        }))
+        Ok(Box::new(us.into_iter()))
     }
 }
 
-impl DbService for UserServiceDb {
-    fn new(db: Pool) -> Self {
+impl UserServiceDb {
+    pub fn new(db: Pool) -> Self {
         Self { db }
     }
 }
@@ -53,8 +52,10 @@ pub struct CreateUser {
 }
 
 // the output to our `create_user` handler
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::users)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct User {
-    pub id: i64,
+    pub id: i32,
     pub email: String,
 }

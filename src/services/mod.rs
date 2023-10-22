@@ -1,7 +1,5 @@
+use diesel_async::AsyncPgConnection;
+
 pub mod users;
 
-use deadpool_postgres as dpp;
-
-pub trait DbService {
-    fn new(db: dpp::Pool) -> Self;
-}
+pub type Pool = diesel_async::pooled_connection::deadpool::Pool<AsyncPgConnection>;
