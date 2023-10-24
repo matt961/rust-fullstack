@@ -76,7 +76,7 @@ async fn root() -> axum::response::Result<maud::Markup> {
                 .user-component #"user-component" {
                     (helpers::WithAttr::<char>(
                             &[r#"hx-get="/users""#,
-                            r#"hx-trigger="every 2s""#,
+                            r#"hx-trigger="every 10s""#,
                             r#"hx-swap="innerHTML""#],
                             "div", None))
                 }

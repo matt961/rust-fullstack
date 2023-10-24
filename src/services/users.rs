@@ -1,6 +1,6 @@
 use axum::async_trait;
 use diesel::prelude::*;
-use diesel_async::pooled_connection::deadpool::PoolError;
+
 use diesel_async::RunQueryDsl;
 use serde::{Deserialize, Serialize};
 
