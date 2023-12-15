@@ -1,17 +1,17 @@
 use axum::async_trait;
 use diesel::prelude::*;
 
+use crate::models::user::*;
 use diesel_async::RunQueryDsl;
-use serde::{Deserialize, Serialize};
 
-use crate::helpers::error::AppError;
+use crate::schema;
 
 use super::Pool;
 
 #[async_trait]
-pub trait UserService<E> {
-    async fn get_users(&self, offset: i32, limit: i64)
-        -> Result<Box<dyn Iterator<Item = User>>, E>;
+pub trait UserService<E = anyhow::Error>: Clone + Send + Sync + 'static {
+    async fn get_users(&self, offset: i32, limit: i64) -> Result<Vec<User>, E>;
+    async fn create_user(&self, user: &CreateUser) -> Result<User, E>;
 }
 
 #[derive(Clone)]
@@ -20,13 +20,9 @@ pub struct UserServiceDb {
 }
 
 #[async_trait]
-impl UserService<AppError> for UserServiceDb {
-    async fn get_users(
-        &self,
-        offset: i32,
-        limit: i64,
-    ) -> Result<Box<dyn Iterator<Item = User>>, AppError> {
-        use crate::schema::users::dsl::*;
+impl UserService<anyhow::Error> for UserServiceDb {
+    async fn get_users(&self, offset: i32, limit: i64) -> Result<Vec<User>, anyhow::Error> {
+        use schema::users::dsl::*;
 
         let mut conn = self.db.get().await?;
         let us: Vec<User> = users
@@ -35,7 +31,20 @@ impl UserService<AppError> for UserServiceDb {
             .select(User::as_select())
             .load(&mut conn)
             .await?;
-        Ok(Box::new(us.into_iter()))
+        Ok(us)
+    }
+
+    async fn create_user(&self, u: &CreateUser) -> Result<User, anyhow::Error> {
+        use schema::users::dsl::*;
+
+        let mut conn = self.db.get().await?;
+
+        let user = diesel::insert_into(users)
+            .values(u)
+            .get_result::<User>(&mut conn)
+            .await?;
+
+        Ok(user)
     }
 }
 
@@ -43,19 +52,4 @@ impl UserServiceDb {
     pub fn new(db: Pool) -> Self {
         Self { db }
     }
-}
-
-// the input to our `create_user` handler
-#[derive(Deserialize)]
-pub struct CreateUser {
-    pub email: String,
-}
-
-// the output to our `create_user` handler
-#[derive(Serialize, Debug, Queryable, Selectable)]
-#[diesel(table_name = crate::schema::users)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct User {
-    pub id: i32,
-    pub email: String,
 }

@@ -1,5 +1,4 @@
-use axum::response::IntoResponse;
-use hyper::StatusCode;
+use axum::{http::StatusCode, response::IntoResponse};
 
 pub struct AppError(pub anyhow::Error);
 

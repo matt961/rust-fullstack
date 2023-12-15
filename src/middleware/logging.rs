@@ -11,10 +11,10 @@ where
     /// Add HTTP logging to Router
     fn with_http_logging(self) -> Router<S> {
         self.route_layer(tower_http::trace::TraceLayer::new_for_http()
-            .on_request(|request: &hyper::Request<_>, _span: &_| {
+            .on_request(|request: &axum::http::Request<_>, _span: &_| {
                 tracing::info!(target: "tower_http", path = ?request.uri().path_and_query().unwrap().as_str());
             })
-            .on_response(|response: &hyper::Response<_>, _, _span: &_| {
+            .on_response(|response: &axum::http::Response<_>, _, _span: &_| {
                 tracing::info!(target: "tower_http", status = format!("{} {}", response.status().as_str(), response.status().canonical_reason().unwrap()))
             }))
     }
