@@ -1,0 +1,9 @@
+{
+  "plugins": {
+    "tailwindcss": {},
+    "postcss-import": true,
+    "postcss-import-ext-glob": true,
+    "postcss-url": true,
+    "postcss-custom-properties": true
+  }
+}
