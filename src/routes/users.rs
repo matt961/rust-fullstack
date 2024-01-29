@@ -1,49 +1,42 @@
 use axum::{
     extract::State,
+    response,
     routing::{get, MethodRouter},
     Form,
 };
 use maud::html;
 
-use crate::models;
 use crate::services::users::UserService;
+use crate::{components, models, AppError};
 
-async fn users<S: UserService>(State(usersvc): State<S>) -> axum::response::Html<String> {
-    let users = usersvc
-        .get_users(0, 200)
-        .await
-        .map_err(crate::AppError::from);
+async fn get_users<S: UserService>(State(usersvc): State<S>) -> response::Result<maud::Markup> {
+    let users = usersvc.get_users(0, 200).await.map_err(AppError::from);
+    let users = users.map_err(|_| html! { p { "No users" } })?;
 
-    let r = match users {
-        Ok(users) => crate::components::user_list_component::render(&users),
-        Err(_) => html! { p { "No users" } },
-    };
-    axum::response::Html::from(r.into_string())
+    Ok(components::user_list_component::render(&users))
 }
 
 async fn create_user<S: UserService>(
     State(usersvc): State<S>,
     Form(payload): Form<models::user::CreateUser>,
-) -> axum::response::Html<String> {
+) -> response::Result<maud::Markup> {
     let user = usersvc.create_user(&payload).await;
-
-    let r = match user {
-        Ok(user) => html! {
-            div hidden hx-get="/users"
-                        hx-trigger="load"
-                        hx-target="#user-list-component"
-                        hx-swap="innerHTML" {}
-            p { "User " (user.email) " has been created. ID = " (user.id) }
-            p { "User " (user.email) " has been created. ID = " (user.id) }
-        },
-        Err(_) => html! {
+    let user = user.map_err(|_| {
+        return html! {
             p { "Error" }
-        },
-    };
+        };
+    })?;
 
-    axum::response::Html::from(r.into_string())
+    let r = html! {
+        div hidden hx-get="/users"
+            hx-trigger="load"
+            hx-target="#user-list-component"
+            hx-swap="innerHTML" {}
+        p { "User " (user.email) " has been created. ID = " (user.id) }
+    };
+    Ok(r)
 }
 
 pub fn router<UserSvc: UserService>() -> MethodRouter<UserSvc> {
-    get(users::<UserSvc>).post(create_user::<UserSvc>)
+    get(get_users::<UserSvc>).post(create_user::<UserSvc>)
 }

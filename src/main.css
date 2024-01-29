@@ -1,2 +1,3 @@
-@import-glob "src/tailwind.css";
-@import-glob "src/components/user/*.css";
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";

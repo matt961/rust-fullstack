@@ -6,10 +6,10 @@ use diesel_async::RunQueryDsl;
 
 use crate::schema;
 
-use super::Pool;
+use super::{Pool, Svc};
 
 #[async_trait]
-pub trait UserService<E = anyhow::Error>: Clone + Send + Sync + 'static {
+pub trait UserService<E = anyhow::Error>: Svc {
     async fn get_users(&self, offset: i32, limit: i64) -> Result<Vec<User>, E>;
     async fn create_user(&self, user: &CreateUser) -> Result<User, E>;
 }
@@ -18,6 +18,8 @@ pub trait UserService<E = anyhow::Error>: Clone + Send + Sync + 'static {
 pub struct UserServiceDb {
     db: Pool,
 }
+
+impl Svc for UserServiceDb {}
 
 #[async_trait]
 impl UserService<anyhow::Error> for UserServiceDb {

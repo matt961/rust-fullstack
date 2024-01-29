@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let user_svc = UserServiceDb::new(pool.clone());
 
     let app = Router::new()
-        .nest_service("/", tower_http::services::ServeDir::new("./scripts/dist/"))
+        .nest_service("/", tower_http::services::ServeDir::new("./dist/"))
         .route(
             "/users",
             routes::users::router().with_state(user_svc.clone()),
