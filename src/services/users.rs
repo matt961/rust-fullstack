@@ -23,7 +23,7 @@ impl Svc for UserServiceDb {}
 
 #[async_trait]
 impl UserService<anyhow::Error> for UserServiceDb {
-    async fn get_users(&self, offset: i32, limit: i64) -> Result<Vec<User>, anyhow::Error> {
+    async fn get_users(&self, offset: i32, limit: i64) -> anyhow::Result<Vec<User>> {
         use schema::users::dsl::*;
 
         let mut conn = self.db.get().await?;
@@ -36,7 +36,7 @@ impl UserService<anyhow::Error> for UserServiceDb {
         Ok(us)
     }
 
-    async fn create_user(&self, u: &CreateUser) -> Result<User, anyhow::Error> {
+    async fn create_user(&self, u: &CreateUser) -> anyhow::Result<User> {
         use schema::users::dsl::*;
 
         let mut conn = self.db.get().await?;

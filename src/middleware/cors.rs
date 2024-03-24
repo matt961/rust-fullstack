@@ -1,4 +1,4 @@
-use axum::Router;
+use axum::{http::Method, Router};
 use tower_http::cors::{self, CorsLayer};
 
 pub trait CorsExt<S> {
@@ -13,10 +13,10 @@ where
     fn with_cors(self) -> Router<S> {
         let cors_layer = CorsLayer::new()
             .allow_origin(cors::AllowOrigin::predicate(|origin, _| {
-                origin.as_bytes().ends_with(b".dns.podman")
-                    || origin.as_bytes().starts_with(b"https://localhost:3333")
+                let origin = origin.as_bytes();
+                origin.ends_with(b".dns.podman") || origin.starts_with(b"https://localhost:3333")
             }))
-            .allow_methods(cors::Any)
+            .allow_methods([Method::GET, Method::POST, Method::PUT])
             .allow_headers(cors::Any);
 
         self.route_layer(cors_layer)

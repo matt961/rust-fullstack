@@ -2,9 +2,6 @@
 <html lang="en">
 
 <head>
-  <script src="https://unpkg.com/htmx.org@1.9.6"
-    integrity="sha384-FhXw7b6AlE/jyjlZH5iHa/tTe9EpJ1Y55RjcgPbjeWMskSxZt1v9qkxLJWNJaGni"
-    crossorigin="anonymous"></script>
   <script type="module" src="index.js"></script>
   <link rel="stylesheet" href="main.css" />
 </head>
@@ -17,18 +14,19 @@
     hx-trigger="load" hx-swap="innerHTML">
   </div>
 
-  <div class="user-create-component " id="user-create-component">
-    <form class="flex flex-wrap items-center component px-4" id="user-create-form" hx-post="/users" hx-target="this"
+  <div class="user-create-component" id="user-create-component">
+    <form class="flex flex-col items-center component px-8" id="user-create-form" hx-post="/users" hx-target="this"
       hx-swap="afterend">
-      <label for="email">"Email"</label>
-      <input name="email" type="email" />
-      <label for="password">"Password"</label>
-      <input name="password" type="password" />
-      <div class="basis-full">
-        <div class="w-32 rounded-md form-submit border-solid border-black border-2">
-          <input type="submit" value="Create user" />
-        </div>
-      </div>
+      <label for="email">Email</label>
+      <input class="i-form-input" name="email" type="email" />
+      <label for="password">Password</label>
+      <input class="i-form-input" name="password" type="password" />
+
+      <button
+        class="h-10 w-fit px-4 my-4 font-semibold rounded-md bg-black hover:bg-gray-700 transition-colors duration-100 ease-in-out text-white"
+        type="submit">
+        Create user
+      </button>
     </form>
   </div>
 </body>

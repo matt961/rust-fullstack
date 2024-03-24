@@ -2,41 +2,71 @@ use axum::{
     extract::State,
     response,
     routing::{get, MethodRouter},
-    Form,
+    Form, RequestExt,
 };
-use maud::html;
+use tera::Tera;
 
 use crate::services::users::UserService;
-use crate::{components, models, AppError};
+use crate::{models, AppError};
 
-async fn get_users<S: UserService>(State(usersvc): State<S>) -> response::Result<maud::Markup> {
-    let users = usersvc.get_users(0, 200).await.map_err(AppError::from);
-    let users = users.map_err(|_| html! { p { "No users" } })?;
+use tracing::Instrument;
 
-    Ok(components::user_list_component::render(&users))
+async fn get_users<UserSvc: UserService>(
+    State((usersvc, tera)): State<(UserSvc, Tera)>,
+    _req: axum::extract::Request,
+) -> response::Result<axum::response::Html<String>> {
+    let users = usersvc
+        .get_users(0, 200)
+        .in_current_span()
+        .await
+        .map_err(AppError::from)?;
+
+    Ok(response::Html(
+        tera.render(
+            "users/get.html",
+            &tera::Context::from_value(
+                serde_json::to_value(serde_json::json!({"users": users}))
+                    .map_err(AppError::from)?,
+            )
+            .map_err(AppError::from)?,
+        )
+        .map_err(AppError::from)?,
+    ))
 }
 
-async fn create_user<S: UserService>(
-    State(usersvc): State<S>,
-    Form(payload): Form<models::user::CreateUser>,
-) -> response::Result<maud::Markup> {
-    let user = usersvc.create_user(&payload).await;
-    let user = user.map_err(|_| {
-        return html! {
-            p { "Error" }
-        };
-    })?;
+async fn create_user<UserSvc: UserService>(
+    State((usersvc, tera)): State<(UserSvc, Tera)>,
+    // State(tera): State<Tera>,
+    // Form(payload): Form<models::user::CreateUser>,
+    req: axum::extract::Request,
+) -> response::Result<response::Html<String>> {
+    let Form(payload): Form<models::user::CreateUser> = req.extract().await?;
 
-    let r = html! {
-        div hidden hx-get="/users"
-            hx-trigger="load"
-            hx-target="#user-list-component"
-            hx-swap="innerHTML" {}
-        p { "User " (user.email) " has been created. ID = " (user.id) }
-    };
-    Ok(r)
+    if payload.email.is_empty() {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            response::Html("email invalid".to_owned()),
+        )
+            .into());
+    }
+
+    let user = usersvc
+        .create_user(&payload)
+        .await
+        .map_err(AppError::from)?;
+
+    Ok(response::Html(
+        tera.render(
+            "users/create.html",
+            &tera::Context::from_value(serde_json::to_value(user).map_err(AppError::from)?)
+                .map_err(AppError::from)?,
+        )
+        .map_err(AppError::from)?,
+    ))
 }
 
-pub fn router<UserSvc: UserService>() -> MethodRouter<UserSvc> {
+type UserRoutesState<T> = (T, Tera);
+
+pub fn router<UserSvc: UserService>() -> MethodRouter<UserRoutesState<UserSvc>> {
     get(get_users::<UserSvc>).post(create_user::<UserSvc>)
 }

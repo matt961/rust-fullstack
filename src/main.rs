@@ -1,14 +1,12 @@
-mod components;
 mod config;
-mod helpers;
+mod error;
 mod middleware;
 mod models;
 mod routes;
 mod schema;
 mod services;
 
-use std::error::Error;
-
+use axum::http::header;
 use axum::Router;
 
 use diesel_async::pooled_connection::deadpool::{Hook, Pool};
@@ -16,27 +14,33 @@ use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
 use figment::{providers::Format, Figment};
 
-use helpers::error::AppError;
+use error::AppError;
 use services::users::UserServiceDb;
+use tera::Tera;
+use tower::ServiceBuilder;
+use tower_http::compression::CompressionLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::*;
+use tracing_forest::ForestLayer;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
 use crate::middleware::logging::HttpLoggingExt;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> anyhow::Result<()> {
     let cfg: config::DbCfg = Figment::new()
         .merge(figment::providers::Json::file("appsettings.json"))
         .merge(figment::providers::Env::prefixed("APP_"))
         .extract()?;
 
     // initialize tracing
-    let fmtlayer = tracing_subscriber::fmt::layer();
+    // let fmtlayer = tracing_subscriber::fmt::layer();
 
     tracing_subscriber::registry()
         // .with_http_tracing()
-        .with(fmtlayer)
         .with(EnvFilter::from_default_env())
+        // .with(fmtlayer)
+        .with(ForestLayer::default())
         .init();
 
     // create a new connection pool with the default config
@@ -47,16 +51,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pool = Pool::builder(mgr)
         .max_size(10)
         .pre_recycle(Hook::async_fn(|conn, metrics| {
-            tracing::info_span!("dbpool::pre_recycle").in_scope(|| {
+            tracing::trace_span!("dbpool::pre_recycle").in_scope(|| {
                 let c = std::ptr::addr_of!(conn);
-                tracing::info!(?c, ?metrics, "Pre-recycle");
+                tracing::trace!(?c, ?metrics, "Pre-recycle");
                 Box::pin(std::future::ready(Ok(())))
             })
         }))
         .post_create(Hook::async_fn(|conn, metrics| {
-            tracing::info_span!("dbpool::post_create").in_scope(|| {
+            tracing::trace_span!("dbpool::post_create").in_scope(|| {
                 let c = std::ptr::addr_of!(conn);
-                tracing::info!(?c, ?metrics, "Post-create");
+                tracing::trace!(?c, ?metrics, "Post-create");
                 Box::pin(std::future::ready(Ok(())))
             })
         }))
@@ -65,18 +69,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let user_svc = UserServiceDb::new(pool.clone());
 
+    let tera = Tera::new("src/templates/**/*")?;
+
     let app = Router::new()
-        .nest_service("/", tower_http::services::ServeDir::new("./dist/"))
+        .nest_service(
+            "/",
+            ServiceBuilder::new()
+                .layer(SetResponseHeaderLayer::if_not_present(
+                    header::CACHE_CONTROL,
+                    header::HeaderValue::from_static("max-age=13420"),
+                ))
+                .layer(CompressionLayer::new())
+                .service(tower_http::services::ServeDir::new("./dist/")),
+        )
         .route(
             "/users",
-            routes::users::router().with_state(user_svc.clone()),
+            routes::users::router().with_state((user_svc.clone(), tera.clone())),
         )
         .with_http_logging();
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app.into_make_service())
-        .await
-        .unwrap();
+    let addr = "0.0.0.0:3000";
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("started listening on {}", addr);
+    axum::serve(listener, app.into_make_service()).await?;
 
     Ok(())
 }
