@@ -1,3 +1,4 @@
+mod background;
 mod config;
 mod error;
 mod middleware;
@@ -6,11 +7,14 @@ mod routes;
 mod schema;
 mod services;
 
+use anyhow::anyhow;
 use axum::http::header;
 use axum::Router;
 
 use diesel_async::pooled_connection::deadpool::{Hook, Pool};
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+
+use deadpool_lapin;
 
 use figment::{providers::Format, Figment};
 
@@ -71,6 +75,16 @@ async fn main() -> anyhow::Result<()> {
 
     let tera = Tera::new("src/templates/**/*")?;
 
+    let mut rabbitmq_pool_cfg = deadpool_lapin::Config {
+        url: cfg.rabbitmq_url.into(),
+        ..Default::default()
+    };
+    rabbitmq_pool_cfg
+        .pool
+        .as_mut()
+        .ok_or(anyhow!("no pool config wut"))?;
+    let rabbitmq_pool = rabbitmq_pool_cfg.create_pool(deadpool::Runtime::Tokio1.into())?;
+
     let app = Router::new()
         .nest_service(
             "/",
@@ -86,11 +100,15 @@ async fn main() -> anyhow::Result<()> {
             "/users",
             routes::users::router().with_state((user_svc.clone(), tera.clone())),
         )
+        .nest(
+            "/posts",
+            routes::posts::router().with_state((rabbitmq_pool.clone(),)),
+        )
         .with_http_logging();
 
     let addr = "0.0.0.0:3000";
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("started listening on {}", addr);
+    info!("starting listening at {}", addr);
     axum::serve(listener, app.into_make_service()).await?;
 
     Ok(())
