@@ -2,7 +2,7 @@
 version: '3'
 services:
   app_postgres:
-    image: docker.io/postgres:16
+    image: ghcr.io/fboulnois/pg_uuidv7
     env_file: .env
     environment:
       - "PGDATA=/var/lib/postgresql/data/pgdata"

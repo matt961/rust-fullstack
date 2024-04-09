@@ -7,6 +7,8 @@ mod routes;
 mod schema;
 mod services;
 
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use axum::http::header;
 use axum::Router;
@@ -14,13 +16,12 @@ use axum::Router;
 use diesel_async::pooled_connection::deadpool::{Hook, Pool};
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
-use deadpool_lapin;
-
 use figment::{providers::Format, Figment};
 
 use error::AppError;
 use services::users::UserServiceDb;
 use tera::Tera;
+use tokio::spawn;
 use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -28,6 +29,7 @@ use tracing::*;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
+use crate::background::posts_broker::PostsBroker;
 use crate::middleware::logging::HttpLoggingExt;
 
 #[tokio::main]
@@ -85,6 +87,12 @@ async fn main() -> anyhow::Result<()> {
         .ok_or(anyhow!("no pool config wut"))?;
     let rabbitmq_pool = rabbitmq_pool_cfg.create_pool(deadpool::Runtime::Tokio1.into())?;
 
+    let posts_subscriber_mgr: Arc<_> = background::posts_broker::PostsSubscriptionManager::new().into();
+    let posts_broker = PostsBroker::new(posts_subscriber_mgr.clone(), rabbitmq_pool.clone());
+
+    // start posts broker background
+    let posts_broker_jhandle = spawn(background::posts_broker::run(posts_broker));
+
     let app = Router::new()
         .nest_service(
             "/",
@@ -102,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .nest(
             "/posts",
-            routes::posts::router().with_state((rabbitmq_pool.clone(),)),
+            routes::posts::router().with_state((posts_subscriber_mgr.clone(), rabbitmq_pool.clone())),
         )
         .with_http_logging();
 
