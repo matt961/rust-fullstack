@@ -87,11 +87,11 @@ async fn main() -> anyhow::Result<()> {
         .ok_or(anyhow!("no pool config wut"))?;
     let rabbitmq_pool = rabbitmq_pool_cfg.create_pool(deadpool::Runtime::Tokio1.into())?;
 
-    let posts_subscriber_mgr: Arc<_> = background::posts_broker::PostsSubscriptionManager::new().into();
+    let posts_subscriber_mgr = Arc::new(background::posts_broker::PostsSubscriptionManager::new());
     let posts_broker = PostsBroker::new(posts_subscriber_mgr.clone(), rabbitmq_pool.clone());
 
     // start posts broker background
-    let posts_broker_jhandle = spawn(background::posts_broker::run(posts_broker));
+    let posts_broker_jhandle = spawn(posts_broker.run());
 
     let app = Router::new()
         .nest_service(

@@ -98,75 +98,78 @@ impl PostsBroker {
     }
 
     pub async fn tick(self) {}
-}
 
-pub async fn run(pb: PostsBroker) -> Result<(), Error> {
-    // TODO: shutdown signal
-    use futures::select;
+    pub async fn run(self) -> Result<(), Error> {
+        // TODO: shutdown signal
 
-    let pb = &pb;
-    let mut q_conn = pb.q_pool.get().in_current_span().await?;
-    let mut chan = q_conn.create_channel().in_current_span().await?;
-    let consumer = &mut chan
-        .basic_consume(
-            "posts",
-            "",
-            BasicConsumeOptions {
-                no_ack: true,
-                ..Default::default()
-            },
-            Default::default(),
-        )
-        .in_current_span()
-        .await?;
+        let pb = &self;
+        let mut q_conn = pb.q_pool.get().in_current_span().await?;
+        let mut chan = q_conn.create_channel().in_current_span().await?;
+        let consumer = &mut chan
+            .basic_consume(
+                "posts",
+                "",
+                BasicConsumeOptions {
+                    no_ack: true,
+                    ..Default::default()
+                },
+                Default::default(),
+            )
+            .in_current_span()
+            .await?;
 
-    consumer
-        // ensure delivery success
-        .filter_map(|maybe_delivery| {
-            if let Err(ref e) = maybe_delivery {
-                error!(target: "posts_consume", error = %e, "posts consume fail: {}", e);
-            }
-            future::ready(maybe_delivery.ok())
-        })
-        // ensure json
-        .filter(|delivery| {
-            let content_type = delivery
-                .properties
-                .content_type()
-                .as_ref()
-                .map(ShortString::as_str)
-                .unwrap_or("");
-            if content_type != "application/json" {
-                let delivery_id = delivery
+        consumer
+            .inspect(|_| {
+                info!("new post")
+            })
+            // ensure delivery success
+            .filter_map(|maybe_delivery| {
+                if let Err(ref e) = maybe_delivery {
+                    error!(error = %e, "posts consume fail: {}", e);
+                }
+                future::ready(maybe_delivery.ok())
+            })
+            // ensure json
+            .filter(|delivery| {
+                let content_type = delivery
                     .properties
-                    .message_id()
+                    .content_type()
                     .as_ref()
                     .map(ShortString::as_str)
-                    .unwrap_or("n/a");
-                info!(target: "posts_consume", %delivery_id);
-                return future::ready(false);
-            };
-            future::ready(true)
-        })
-        .filter_map(|delivery| {
-            let v = std::str::from_utf8(&delivery.data)
-                .map_err(Error::from)
-                .and_then(|d| serde_json::Value::from_str(d).map_err(Error::from));
+                    .unwrap_or("");
+                if content_type != "application/json" {
+                    let delivery_id = delivery
+                        .properties
+                        .message_id()
+                        .as_ref()
+                        .map(ShortString::as_str)
+                        .unwrap_or("n/a");
+                    info!(%delivery_id);
+                    return future::ready(false);
+                };
+                future::ready(true)
+            })
+            .filter_map(|delivery| {
+                let v = std::str::from_utf8(&delivery.data)
+                    .map_err(Error::from)
+                    .and_then(|d| serde_json::Value::from_str(d).map_err(Error::from));
 
-            if let Err(e) = &v {
-                error!(target: "posts_consume", error = %e);
-            }
-            future::ready(v.ok())
-        })
-        .for_each_concurrent(5, |v| async move {
-            let v = Arc::new(v); // ensures no copy
-            for sub in pb.posts_subscription_mgr.subscriptions.iter() {
-                if let Err(e) = sub.tx.send_timeout(v.clone(), Duration::from_secs(5)).await {
-                    error!(target: "posts_consume", error = %e);
+                if let Err(e) = &v {
+                    error!(error = %e);
                 }
-            }
-        })
-        .in_current_span();
+                future::ready(v.ok())
+            })
+            // TODO: maybe manage manually instead
+            .for_each_concurrent(5, |v| async move {
+                let v = Arc::new(v); // ensures no copy
+                for sub in pb.posts_subscription_mgr.subscriptions.iter() {
+                    if let Err(e) = sub.tx.send_timeout(v.clone(), Duration::from_secs(5)).await {
+                        error!(error = %e);
+                    }
+                }
+            })
+            .instrument(tracing::info_span!(target: "posts_consume", "posts_consume"));
 
-    Ok(())
+        Ok(())
+    }
 }
