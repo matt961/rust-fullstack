@@ -9,9 +9,11 @@ mod services;
 use axum::http::header;
 use axum::Router;
 
+use diesel::Connection;
 use diesel_async::pooled_connection::deadpool::{Hook, Pool};
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
+use diesel_migrations::MigrationHarness;
 use figment::{providers::Format, Figment};
 
 use error::AppError;
@@ -33,13 +35,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(figment::providers::Env::prefixed("APP_"))
         .extract()?;
 
-    // initialize tracing
-    // let fmtlayer = tracing_subscriber::fmt::layer();
-
     tracing_subscriber::registry()
-        // .with_http_tracing()
         .with(EnvFilter::from_default_env())
-        // .with(fmtlayer)
         .with(ForestLayer::default())
         .init();
 
@@ -67,6 +64,17 @@ async fn main() -> anyhow::Result<()> {
         .runtime(deadpool::Runtime::Tokio1)
         .build()?;
 
+    const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
+        diesel_migrations::embed_migrations!("migrations/");
+    let mut conn = diesel::PgConnection::establish(&cfg.database_url)?;
+    let mig_res = <diesel::PgConnection as MigrationHarness<_>>::run_pending_migrations(
+        &mut conn, MIGRATIONS,
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
+    for mig in mig_res {
+        info!("Migration applied: {:?}", mig);
+    }
+
     let user_svc = UserServiceDb::new(pool.clone());
 
     let tera = Tera::new("src/templates/**/*")?;
@@ -84,7 +92,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/users",
-            routes::users::router().with_state((user_svc.clone(), tera.clone())),
+            routes::users::router()
+            .with_state((user_svc.clone(), tera.clone())),
         )
         .with_http_logging();
 

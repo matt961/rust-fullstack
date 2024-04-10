@@ -1,8 +1,5 @@
 use axum::{
-    extract::State,
-    response,
-    routing::{get, MethodRouter},
-    Form, RequestExt,
+    body::Body, extract::State, response, routing::{get, MethodRouter}, Form, RequestExt
 };
 use tera::Tera;
 
@@ -14,7 +11,7 @@ use tracing::Instrument;
 async fn get_users<UserSvc: UserService>(
     State((usersvc, tera)): State<(UserSvc, Tera)>,
     _req: axum::extract::Request,
-) -> response::Result<axum::response::Html<String>> {
+) -> response::Result<axum::response::Html<impl Into<Body>>> {
     let users = usersvc
         .get_users(0, 200)
         .in_current_span()
@@ -39,7 +36,7 @@ async fn create_user<UserSvc: UserService>(
     // State(tera): State<Tera>,
     // Form(payload): Form<models::user::CreateUser>,
     req: axum::extract::Request,
-) -> response::Result<response::Html<String>> {
+) -> response::Result<response::Html<impl Into<Body>>> {
     let Form(payload): Form<models::user::CreateUser> = req.extract().await?;
 
     if payload.email.is_empty() {
