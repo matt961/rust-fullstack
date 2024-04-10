@@ -69,7 +69,7 @@ impl PostsSubscriptionManager {
         }
     }
 
-    pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<serde_json::Value> {
+    pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<Arc<serde_json::Value>> {
         let (tx, rx) = tokio::sync::mpsc::channel(24);
         let sub = Subscriber {
             id: uuid::Uuid::now_v7(),
@@ -119,9 +119,7 @@ impl PostsBroker {
             .await?;
 
         consumer
-            .inspect(|_| {
-                info!("new post")
-            })
+            .inspect(|_| info!("new post"))
             // ensure delivery success
             .filter_map(|maybe_delivery| {
                 if let Err(ref e) = maybe_delivery {
@@ -160,15 +158,18 @@ impl PostsBroker {
                 future::ready(v.ok())
             })
             // TODO: maybe manage manually instead
-            .for_each_concurrent(5, |v| async move {
-                let v = Arc::new(v); // ensures no copy
-                for sub in pb.posts_subscription_mgr.subscriptions.iter() {
-                    if let Err(e) = sub.tx.send_timeout(v.clone(), Duration::from_secs(5)).await {
-                        error!(error = %e);
+            .for_each_concurrent(5, |v| {
+                async move {
+                    let v = Arc::new(v); // ensures no copy
+                    for sub in pb.posts_subscription_mgr.subscriptions.iter() {
+                        if let Err(e) = sub.tx.send_timeout(v.clone(), Duration::from_secs(5)).await
+                        {
+                            error!(error = %e);
+                        }
                     }
                 }
-            })
-            .instrument(tracing::info_span!(target: "posts_consume", "posts_consume"));
+                .instrument(tracing::info_span!("posts_consume"))
+            });
 
         Ok(())
     }

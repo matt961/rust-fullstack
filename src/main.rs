@@ -13,6 +13,7 @@ use anyhow::anyhow;
 use axum::http::header;
 use axum::Router;
 
+use diesel::Connection;
 use diesel_async::pooled_connection::deadpool::{Hook, Pool};
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
@@ -73,6 +74,18 @@ async fn main() -> anyhow::Result<()> {
         .runtime(deadpool::Runtime::Tokio1)
         .build()?;
 
+    const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
+        diesel_migrations::embed_migrations!("migrations/");
+    let mut conn = diesel::PgConnection::establish(&cfg.database_url)?;
+    let mig_res =
+        <diesel::PgConnection as diesel_migrations::MigrationHarness<_>>::run_pending_migrations(
+            &mut conn, MIGRATIONS,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+    for mig in mig_res {
+        info!("Migration applied: {:?}", mig);
+    }
+
     let user_svc = UserServiceDb::new(pool.clone());
 
     let tera = Tera::new("src/templates/**/*")?;
@@ -91,7 +104,11 @@ async fn main() -> anyhow::Result<()> {
     let posts_broker = PostsBroker::new(posts_subscriber_mgr.clone(), rabbitmq_pool.clone());
 
     // start posts broker background
-    let posts_broker_jhandle = spawn(posts_broker.run());
+    let posts_broker_jhandle = spawn(
+        posts_broker
+            .run()
+            .instrument(info_span!("posts_broker_run")),
+    );
 
     let app = Router::new()
         .nest_service(
@@ -110,7 +127,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .nest(
             "/posts",
-            routes::posts::router().with_state((posts_subscriber_mgr.clone(), rabbitmq_pool.clone())),
+            routes::posts::router()
+                .with_state((posts_subscriber_mgr.clone(), rabbitmq_pool.clone())),
         )
         .with_http_logging();
 

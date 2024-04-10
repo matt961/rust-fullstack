@@ -37,7 +37,7 @@ async fn ws(
                     while let Some(x) = stream.next().await {
                         match sink
                             .feed(Message::Binary(
-                                serde_json::to_string(&x)
+                                serde_json::to_string(x.as_ref())
                                     .unwrap_or("{}".to_owned())
                                     .into_bytes(),
                             ))
@@ -60,12 +60,13 @@ async fn ws(
 
 async fn create_post(
     State((_, rmq_conn)): State<PostsRouteState>,
-    req: Request
+    req: Request,
 ) -> impl IntoResponse {
-    let form: Form<> = req.extract();
+    let form: Form = req.extract();
 }
 
 pub fn router() -> Router<PostsRouteState> {
-    Router::new().route("/ws", get(ws))
+    Router::new()
+        .route("/ws", get(ws))
         .route("/", post(create_post))
 }
