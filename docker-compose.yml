@@ -2,7 +2,7 @@
 version: '3'
 services:
   app_postgres:
-    image: docker.io/postgres:16
+    image: ghcr.io/fboulnois/pg_uuidv7
     env_file: .env
     environment:
       - "PGDATA=/var/lib/postgresql/data/pgdata"
@@ -13,5 +13,13 @@ services:
 
     ports:
       - 15432:5432
+
+  rabbitmq:
+    build:
+      dockerfile: rabbitmq.Dockerfile
+    ports:
+      - 15672:15672
+      - 5672:5672
+
 volumes:
   pgdata: {}

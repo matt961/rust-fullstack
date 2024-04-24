@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     extract::State,
     response,
@@ -12,7 +14,7 @@ use crate::{models, AppError};
 use tracing::Instrument;
 
 async fn get_users<UserSvc: UserService>(
-    State((usersvc, tera)): State<(UserSvc, Tera)>,
+    State((usersvc, tera)): State<(UserSvc, Arc<Tera>)>,
     _req: axum::extract::Request,
 ) -> response::Result<axum::response::Html<String>> {
     let users = usersvc
@@ -35,7 +37,7 @@ async fn get_users<UserSvc: UserService>(
 }
 
 async fn create_user<UserSvc: UserService>(
-    State((usersvc, tera)): State<(UserSvc, Tera)>,
+    State((usersvc, tera)): State<(UserSvc, Arc<Tera>)>,
     // State(tera): State<Tera>,
     // Form(payload): Form<models::user::CreateUser>,
     req: axum::extract::Request,
@@ -65,7 +67,7 @@ async fn create_user<UserSvc: UserService>(
     ))
 }
 
-type UserRoutesState<T> = (T, Tera);
+type UserRoutesState<T> = (T, Arc<Tera>);
 
 pub fn router<UserSvc: UserService>() -> MethodRouter<UserRoutesState<UserSvc>> {
     get(get_users::<UserSvc>).post(create_user::<UserSvc>)

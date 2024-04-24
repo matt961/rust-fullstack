@@ -1,3 +1,4 @@
+mod background;
 mod config;
 mod error;
 mod middleware;
@@ -6,17 +7,24 @@ mod routes;
 mod schema;
 mod services;
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use axum::http::header;
 use axum::Router;
 
-use diesel_async::pooled_connection::deadpool::{Hook, Pool};
+use diesel::Connection;
+use diesel_async::pooled_connection::deadpool as diesel_deadpool;
+use diesel_async::pooled_connection::deadpool::Hook;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
 use figment::{providers::Format, Figment};
 
 use error::AppError;
+use lapin::uri::AMQPUri;
 use services::users::UserServiceDb;
 use tera::Tera;
+use tokio::spawn;
 use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -24,6 +32,7 @@ use tracing::*;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
+use crate::background::posts_broker::PostsBroker;
 use crate::middleware::logging::HttpLoggingExt;
 
 #[tokio::main]
@@ -48,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
         AsyncDieselConnectionManager::<diesel_async::AsyncPgConnection>::new(&cfg.database_url);
 
     info!("Starting DB pool");
-    let pool = Pool::builder(mgr)
+    let pgpool = diesel_deadpool::Pool::builder(mgr)
         .max_size(10)
         .pre_recycle(Hook::async_fn(|conn, metrics| {
             tracing::trace_span!("dbpool::pre_recycle").in_scope(|| {
@@ -67,9 +76,43 @@ async fn main() -> anyhow::Result<()> {
         .runtime(deadpool::Runtime::Tokio1)
         .build()?;
 
-    let user_svc = UserServiceDb::new(pool.clone());
+    const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
+        diesel_migrations::embed_migrations!("migrations/");
+    let mut conn = diesel::PgConnection::establish(&cfg.database_url)?;
+    let mig_res =
+        <diesel::PgConnection as diesel_migrations::MigrationHarness<_>>::run_pending_migrations(
+            &mut conn, MIGRATIONS,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+    for mig in mig_res {
+        info!("Migration applied: {:?}", mig);
+    }
 
-    let tera = Tera::new("src/templates/**/*")?;
+    let user_svc = UserServiceDb::new(pgpool.clone());
+
+    let tera: Arc<_> = Tera::new("src/templates/**/*")?.into();
+
+    let lapin_mgr = deadpool_lapin::Manager::new(
+        &cfg.rabbitmq_url,
+        lapin::ConnectionProperties::default()
+            .with_executor(tokio_executor_trait::Tokio::current())
+            .with_reactor(tokio_reactor_trait::Tokio),
+    );
+    let lapin_pool = deadpool_lapin::Pool::builder(lapin_mgr)
+        .runtime(deadpool::Runtime::Tokio1)
+        .create_timeout(Some(Duration::from_secs(5)))
+        .build()?;
+
+    let posts_subscriber_mgr = Arc::new(background::posts_broker::PostsSubscriptionManager::new());
+    let posts_broker = PostsBroker::new(posts_subscriber_mgr.clone(), lapin_pool.clone());
+
+    // start posts broker background
+    let posts_broker_jhandle = spawn(
+        posts_broker
+            .instrument(info_span!("posts_broker_run"))
+            .run()
+            // .instrument(info_span!("posts_broker_run")),
+    );
 
     let app = Router::new()
         .nest_service(
@@ -86,11 +129,20 @@ async fn main() -> anyhow::Result<()> {
             "/users",
             routes::users::router().with_state((user_svc.clone(), tera.clone())),
         )
+        .nest(
+            "/posts",
+            routes::posts::router().with_state((
+                tera.clone(),
+                posts_subscriber_mgr.clone(),
+                lapin_pool.clone(),
+                pgpool.clone(),
+            )),
+        )
         .with_http_logging();
 
     let addr = "0.0.0.0:3000";
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("started listening on {}", addr);
+    info!("starting listening at {}", addr);
     axum::serve(listener, app.into_make_service()).await?;
 
     Ok(())
