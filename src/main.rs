@@ -21,7 +21,6 @@ use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use figment::{providers::Format, Figment};
 
 use error::AppError;
-use lapin::uri::AMQPUri;
 use services::users::UserServiceDb;
 use tera::Tera;
 use tokio::spawn;
@@ -110,8 +109,7 @@ async fn main() -> anyhow::Result<()> {
     let posts_broker_jhandle = spawn(
         posts_broker
             .instrument(info_span!("posts_broker_run"))
-            .run()
-            // .instrument(info_span!("posts_broker_run")),
+            .run(), // .instrument(info_span!("posts_broker_run")),
     );
 
     let app = Router::new()
