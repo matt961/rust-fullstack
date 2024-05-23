@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Request, State};
 use axum::response::{Html, IntoResponse};
@@ -10,6 +11,7 @@ use futures_util::{SinkExt, StreamExt};
 use lapin::publisher_confirm::Confirmation;
 use lapin::BasicProperties;
 use tera::Tera;
+use tokio::sync::RwLock;
 use tracing::{error, info, warn, Instrument, Span};
 
 use crate::background::posts_broker::PostsSubscriptionManager;
@@ -18,7 +20,7 @@ use crate::models::post::Post;
 use crate::services::Pool;
 
 type PostsRouteState = (
-    Arc<Tera>,
+    Arc<RwLock<Tera>>,
     Arc<PostsSubscriptionManager>,
     deadpool_lapin::Pool,
     Pool,
@@ -35,29 +37,43 @@ async fn ws(
         .on_failed_upgrade(|e| {
             error!(target: "ahh", "ws upgrade failed: {:?}", e);
         })
-        .on_upgrade(|ws| {
+        .on_upgrade(|mut ws| {
             async move {
                 info!("new ws conn");
-                let (mut sink, _) = ws.split();
 
                 let subscription = sub_mgr.subscribe();
-                let mut stream = tokio_stream::wrappers::ReceiverStream::from(subscription);
+                let id = subscription.id;
+                let mut stream = tokio_stream::wrappers::ReceiverStream::from(subscription.rx);
 
                 while let Some(x) = stream.next().await {
                     info!("new post");
                     let mut ctx = tera::Context::new();
                     ctx.insert("post", x.as_ref());
-                    let html = tera.render("posts/ws_post.html", &ctx).unwrap_or_default();
-                    match sink.send(Message::Text(html)).await {
+                    let html = tera
+                        .read()
+                        .await
+                        .render("posts/ws_post.html", &ctx)
+                        .unwrap_or_default();
+                    if let Err(e) = ws.send(Message::Ping(b"foo".to_vec())).await {
+                        warn!(%e, "ws ping failed");
+                        continue;
+                    }
+                    match ws.send(Message::Text(html)).await {
                         Ok(_) => (),
                         Err(e) => {
-                            error!("no work {}", e);
+                            warn!(%e, "ws died");
+                            let _ = sub_mgr
+                                .unsubscribe(&id)
+                                .ok_or_else(|| anyhow!("already unsubscribed: {}", &id))
+                                .inspect_err(|e| error!(%e));
+                            return;
                         }
                     };
                 }
 
                 info!("done sending posts");
-            }.in_current_span()
+            }
+            .in_current_span()
         });
     Ok(res)
 }

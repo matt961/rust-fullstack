@@ -7,6 +7,7 @@ use axum::{
     Form, RequestExt,
 };
 use tera::Tera;
+use tokio::sync::RwLock;
 
 use crate::services::users::UserService;
 use crate::{models, AppError};
@@ -14,7 +15,7 @@ use crate::{models, AppError};
 use tracing::Instrument;
 
 async fn get_users<UserSvc: UserService>(
-    State((usersvc, tera)): State<(UserSvc, Arc<Tera>)>,
+    State((usersvc, tera)): State<UserRoutesState<UserSvc>>,
     _req: axum::extract::Request,
 ) -> response::Result<axum::response::Html<String>> {
     let users = usersvc
@@ -24,7 +25,7 @@ async fn get_users<UserSvc: UserService>(
         .map_err(AppError::from)?;
 
     Ok(response::Html(
-        tera.render(
+        tera.read().await.render(
             "users/get.html",
             &tera::Context::from_value(
                 serde_json::to_value(serde_json::json!({"users": users}))
@@ -37,7 +38,7 @@ async fn get_users<UserSvc: UserService>(
 }
 
 async fn create_user<UserSvc: UserService>(
-    State((usersvc, tera)): State<(UserSvc, Arc<Tera>)>,
+    State((usersvc, tera)): State<UserRoutesState<UserSvc>>,
     // State(tera): State<Tera>,
     // Form(payload): Form<models::user::CreateUser>,
     req: axum::extract::Request,
@@ -58,7 +59,7 @@ async fn create_user<UserSvc: UserService>(
         .map_err(AppError::from)?;
 
     Ok(response::Html(
-        tera.render(
+        tera.read().await.render(
             "users/create.html",
             &tera::Context::from_value(serde_json::to_value(user).map_err(AppError::from)?)
                 .map_err(AppError::from)?,
@@ -67,7 +68,7 @@ async fn create_user<UserSvc: UserService>(
     ))
 }
 
-type UserRoutesState<T> = (T, Arc<Tera>);
+type UserRoutesState<T> = (T, Arc<RwLock<Tera>>);
 
 pub fn router<UserSvc: UserService>() -> MethodRouter<UserRoutesState<UserSvc>> {
     get(get_users::<UserSvc>).post(create_user::<UserSvc>)

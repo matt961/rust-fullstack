@@ -7,12 +7,14 @@ mod routes;
 mod schema;
 mod services;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::header;
 use axum::Router;
 
+use config::Env;
 use diesel::Connection;
 use diesel_async::pooled_connection::deadpool as diesel_deadpool;
 use diesel_async::pooled_connection::deadpool::Hook;
@@ -21,9 +23,11 @@ use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use figment::{providers::Format, Figment};
 
 use error::AppError;
+use notify::Watcher;
 use services::users::UserServiceDb;
 use tera::Tera;
 use tokio::spawn;
+use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -36,20 +40,17 @@ use crate::middleware::logging::HttpLoggingExt;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let cfg: config::DbCfg = Figment::new()
+    let cfg: config::AppCfg = Figment::new()
         .merge(figment::providers::Json::file("appsettings.json"))
         .merge(figment::providers::Env::prefixed("APP_"))
         .extract()?;
 
-    // initialize tracing
-    // let fmtlayer = tracing_subscriber::fmt::layer();
-
     tracing_subscriber::registry()
-        // .with_http_tracing()
         .with(EnvFilter::from_default_env())
-        // .with(fmtlayer)
         .with(ForestLayer::default())
         .init();
+
+    info!("application starting with environment: {:?}", cfg.env);
 
     // create a new connection pool with the default config
     let mgr =
@@ -89,7 +90,50 @@ async fn main() -> anyhow::Result<()> {
 
     let user_svc = UserServiceDb::new(pgpool.clone());
 
-    let tera: Arc<_> = Tera::new("src/templates/**/*")?.into();
+    let tera: Arc<RwLock<_>> = Arc::new(Tera::new("src/templates/**/*")?.into());
+
+    let mut tera_watcher = None;
+    if cfg.env == Env::Development {
+        info!("Development mode: setting up tera watcher");
+
+        struct TeraTemplateWatcher {
+            pub tera: Arc<RwLock<Tera>>,
+            tokio_spawn_handle: tokio::runtime::Handle,
+        }
+        impl notify::EventHandler for TeraTemplateWatcher {
+            fn handle_event(&mut self, event: notify::Result<notify::Event>) {
+                match event {
+                    Ok(e)
+                        if e.kind
+                            == notify::EventKind::Modify(notify::event::ModifyKind::Metadata(
+                                notify::event::MetadataKind::Any,
+                            )) =>
+                    {
+                        info!(?e, "tera file touched");
+                        let s = self.tera.clone();
+                        self.tokio_spawn_handle.spawn(async move {
+                            let _ = s.write().await.full_reload();
+                        });
+                    }
+                    Err(e) => error!(%e, "issue with watching tera templates"),
+                    _ => {}
+                }
+            }
+        }
+        let tera_clone_watch = tera.clone();
+        tera_watcher.replace(notify::recommended_watcher(TeraTemplateWatcher {
+            tera: tera_clone_watch,
+            tokio_spawn_handle: tokio::runtime::Handle::current(),
+        })?);
+    }
+    if let Some(w) = tera_watcher.as_mut() {
+        let _ = w
+            .watch(
+                Path::new("src/templates/"),
+                notify::RecursiveMode::Recursive,
+            )
+            .inspect_err(|e| error!(%e, "issue with thing"));
+    }
 
     let lapin_mgr = deadpool_lapin::Manager::new(
         &cfg.rabbitmq_url,
@@ -106,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
     let posts_broker = PostsBroker::new(posts_subscriber_mgr.clone(), lapin_pool.clone());
 
     // start posts broker background
-    let posts_broker_jhandle = spawn(
+    let _posts_broker_jhandle = spawn(
         posts_broker
             .instrument(info_span!("posts_broker_run"))
             .run(), // .instrument(info_span!("posts_broker_run")),

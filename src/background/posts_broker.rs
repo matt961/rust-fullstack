@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use std::{fmt::Debug, hash::Hash, str::FromStr, sync::Arc, time::Duration};
+use std::{any::type_name, fmt::Debug, hash::Hash, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use deadpool_lapin::Timeouts;
@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use dashmap;
 use tracing::{error, info, info_span, instrument, warn, Instrument, Span};
+use uuid::Uuid;
 
 use crate::error::AppError;
 
@@ -30,7 +31,16 @@ impl Default for PostsBrokerConfig {
 
 // #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Subscription {
-    rx: tokio::sync::mpsc::Receiver<serde_json::Value>,
+    pub id: uuid::Uuid,
+    pub rx: tokio::sync::mpsc::Receiver<Arc<serde_json::Value>>,
+}
+
+impl Debug for Subscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Subscription")
+            .field("id", &self.id)
+            .finish()
+    }
 }
 
 impl Hash for Subscriber {
@@ -58,8 +68,16 @@ struct Subscriber {
     tx: tokio::sync::mpsc::Sender<Arc<serde_json::Value>>,
 }
 
+impl Debug for Subscriber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(type_name::<Self>())
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
 pub struct PostsSubscriptionManager {
-    subscriptions: dashmap::DashSet<Subscriber>,
+    subscriptions: dashmap::DashMap<Uuid, Subscriber>,
 }
 
 impl Debug for PostsSubscriptionManager {
@@ -73,21 +91,24 @@ impl Debug for PostsSubscriptionManager {
 impl PostsSubscriptionManager {
     pub fn new() -> Self {
         Self {
-            subscriptions: dashmap::DashSet::new(),
+            subscriptions: dashmap::DashMap::new(),
         }
     }
 
     #[instrument]
-    pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<Arc<serde_json::Value>> {
+    pub fn subscribe(&self) -> Subscription {
         let (tx, rx) = tokio::sync::mpsc::channel(24);
-        let sub = Subscriber {
-            id: uuid::Uuid::now_v7(),
-            tx,
-        };
+        let id = uuid::Uuid::now_v7();
+        let sub = Subscriber { id, tx };
         info!(action = "subscribe", id = %sub.id);
-        self.subscriptions.insert(sub);
+        self.subscriptions.insert(id, sub);
 
-        rx
+        Subscription { id, rx }
+    }
+
+    #[instrument]
+    pub fn unsubscribe(&self, s: &Uuid) -> Option<Uuid> {
+        self.subscriptions.remove(s).map(|(id, _)| id)
     }
 }
 
@@ -196,7 +217,7 @@ impl PostsBroker {
                         info!(target: "sending_post", sub_id = %sub.id);
                         if let Err(e) = sub.tx.send_timeout(v.clone(), Duration::from_secs(5)).await
                         {
-                            error!(error = %e);
+                            error!(%e, "failed to send post to subscriber");
                         }
                     }
                 }
