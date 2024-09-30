@@ -173,57 +173,51 @@ impl PostsBroker {
                 future::ready(maybe_delivery.ok())
             })
             // ensure json
-            .filter_map(|delivery| {
-                async move {
-                    delivery
-                        .ack(Default::default())
-                        .await
-                        .inspect_err(|e| error!(%e))
-                        .ok();
-                    let content_type = delivery
-                        .properties
-                        .content_type()
-                        .as_ref()
-                        .map(ShortString::as_str)
-                        .unwrap_or("");
-                    if content_type != "application/json" {
-                        // let correlation_id = delivery
-                        //     .properties
-                        //     .correlation_id()
-                        //     .as_ref()
-                        //     .map(ShortString::as_str)
-                        //     .unwrap_or("n/a");
-                        // info!(%correlation_id);
-                        return None;
-                    }
-                    Some(delivery)
+            .filter_map(|delivery| async move {
+                info!("acking");
+                delivery
+                    .ack(Default::default())
+                    .await
+                    .inspect_err(|e| error!(%e))
+                    .ok();
+                info!("acked");
+                let content_type = delivery
+                    .properties
+                    .content_type()
+                    .as_ref()
+                    .map(ShortString::as_str)
+                    .unwrap_or("");
+                if content_type != "application/json" {
+                    return None;
                 }
+                Some(delivery)
             })
-            .filter_map(|delivery| {
+            .filter_map(|delivery| async move {
                 let v = std::str::from_utf8(&delivery.data)
+                    .inspect_err(|e| error!(%e))
                     .map_err(Error::from)
-                    .and_then(|d| serde_json::Value::from_str(d).map_err(Error::from));
+                    .and_then(|d| {
+                        serde_json::Value::from_str(d)
+                            .map_err(Error::from)
+                            .inspect_err(|e| error!(%e))
+                    });
+                info!("deserialized");
 
                 if let Err(e) = &v {
                     error!(error = %e);
                 }
-                future::ready(v.ok())
+                v.ok()
             })
             // TODO: maybe manage manually instead
-            .for_each_concurrent(5, |v| {
-                async move {
-                    let v = Arc::new(v); // ensures no copy
-                    for sub in posts_subscriber_mgr.subscriptions.iter() {
-                        info!(target: "sending_post", sub_id = %sub.id);
-                        if let Err(e) = sub.tx.send_timeout(v.clone(), Duration::from_secs(5)).await
-                        {
-                            error!(%e, "failed to send post to subscriber");
-                        }
+            .for_each_concurrent(5, |v| async move {
+                let v = Arc::new(v); // ensures no copy
+                for sub in posts_subscriber_mgr.subscriptions.iter() {
+                    info!("sending_post to: {sub_id}", sub_id = sub.id);
+                    if let Err(e) = sub.tx.send_timeout(v.clone(), Duration::from_secs(5)).await {
+                        error!(%e, "failed to send post to subscriber");
                     }
                 }
-                .in_current_span()
             })
-            .in_current_span()
             .await;
 
         Ok(())

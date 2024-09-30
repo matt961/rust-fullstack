@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "1.0.75" }
+anyhow = { version = "1" }
 
 tokio = { version = "1.0", features = ["full"] }
 
@@ -16,7 +16,7 @@ tracing-forest = { version = "0.1.6", features = ["full"] }
 
 diesel = { version = "2", features = ["postgres", "uuid"] }
 diesel_migrations = "2"
-diesel-async = { version = "0.4.1", features = [
+diesel-async = { version = "0.5", features = [
   "postgres",
   "deadpool",
   "tokio",
@@ -36,17 +36,17 @@ tower-http = { version = "0.5.0", features = [
 ] }
 tower = "0.4.13"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.68"
+serde_json = "1.0"
 
 tera = "1"
-deadpool-lapin = "0.12.0"
-lapin = { version = "2.3.1", features = ["serde_json"] }
+deadpool-lapin = "0.12"
+lapin = { version = "2", features = ["serde_json"] }
 futures-util = "0.3.30"
-dashmap = "5.5.3"
-uuid = { version = "1.8.0", features = ["serde", "v7"] }
-tokio-stream = { version = "0.1.15", features = ["sync"] }
+dashmap = "6"
+uuid = { version = "1", features = ["serde", "v7"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3.30"
 tokio-executor-trait = "2.1.1"
 tokio-reactor-trait = "1.1.0"
-axum-extra = { version = "0.9.3", features = ["typed-header"] }
-notify = "6.1.1"
+axum-extra = { version = "0.9", features = ["typed-header"] }
+notify = "6"

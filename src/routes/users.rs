@@ -25,15 +25,17 @@ async fn get_users<UserSvc: UserService>(
         .map_err(AppError::from)?;
 
     Ok(response::Html(
-        tera.read().await.render(
-            "users/get.html",
-            &tera::Context::from_value(
-                serde_json::to_value(serde_json::json!({"users": users}))
-                    .map_err(AppError::from)?,
+        tera.read()
+            .await
+            .render(
+                "users/get.html",
+                &tera::Context::from_value(
+                    serde_json::to_value(serde_json::json!({"users": users}))
+                        .map_err(AppError::from)?,
+                )
+                .map_err(AppError::from)?,
             )
             .map_err(AppError::from)?,
-        )
-        .map_err(AppError::from)?,
     ))
 }
 
@@ -59,12 +61,14 @@ async fn create_user<UserSvc: UserService>(
         .map_err(AppError::from)?;
 
     Ok(response::Html(
-        tera.read().await.render(
-            "users/create.html",
-            &tera::Context::from_value(serde_json::to_value(user).map_err(AppError::from)?)
-                .map_err(AppError::from)?,
-        )
-        .map_err(AppError::from)?,
+        tera.read()
+            .await
+            .render(
+                "users/create.html",
+                &tera::Context::from_value(serde_json::to_value(user).map_err(AppError::from)?)
+                    .map_err(AppError::from)?,
+            )
+            .map_err(AppError::from)?,
     ))
 }
 

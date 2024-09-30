@@ -7,7 +7,8 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::post;
 use axum::{extract::ws::Message, routing::get};
 use axum::{Form, RequestExt, Router};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
+use lapin::options::BasicPublishOptions;
 use lapin::publisher_confirm::Confirmation;
 use lapin::BasicProperties;
 use tera::Tera;
@@ -37,83 +38,101 @@ async fn ws(
         .on_failed_upgrade(|e| {
             error!(target: "ahh", "ws upgrade failed: {:?}", e);
         })
-        .on_upgrade(|mut ws| {
-            async move {
-                info!("new ws conn");
+        .on_upgrade(|mut ws| async move {
+            info!("new ws conn");
 
-                let subscription = sub_mgr.subscribe();
-                let id = subscription.id;
-                let mut stream = tokio_stream::wrappers::ReceiverStream::from(subscription.rx);
+            let subscription = sub_mgr.subscribe();
+            let id = subscription.id;
+            let mut stream = tokio_stream::wrappers::ReceiverStream::from(subscription.rx);
 
-                while let Some(x) = stream.next().await {
-                    info!("new post");
-                    let mut ctx = tera::Context::new();
-                    ctx.insert("post", x.as_ref());
-                    let html = tera
-                        .read()
-                        .await
-                        .render("posts/ws_post.html", &ctx)
-                        .unwrap_or_default();
-                    if let Err(e) = ws.send(Message::Ping(b"foo".to_vec())).await {
-                        warn!(%e, "ws ping failed");
-                        continue;
-                    }
-                    match ws.send(Message::Text(html)).await {
-                        Ok(_) => (),
-                        Err(e) => {
-                            warn!(%e, "ws died");
-                            let _ = sub_mgr
-                                .unsubscribe(&id)
-                                .ok_or_else(|| anyhow!("already unsubscribed: {}", &id))
-                                .inspect_err(|e| error!(%e));
-                            return;
-                        }
-                    };
+            while let Some(x) = stream.next().await {
+                info!("new post");
+                let mut ctx = tera::Context::new();
+                ctx.insert("post", x.as_ref());
+                let html = tera
+                    .read()
+                    .await
+                    .render("posts/ws_post.html", &ctx)
+                    .unwrap_or_default();
+                if let Err(e) = ws.send(Message::Ping(b"foo".to_vec())).await {
+                    warn!(%e, "ws ping failed");
+                    continue;
                 }
-
-                info!("done sending posts");
+                match ws.send(Message::Text(html)).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        warn!(%e, "ws died");
+                        let _ = sub_mgr
+                            .unsubscribe(&id)
+                            .ok_or_else(|| anyhow!("already unsubscribed: {}", &id))
+                            .inspect_err(|e| error!(%e));
+                        return;
+                    }
+                };
             }
-            .in_current_span()
+
+            info!("done sending posts");
         });
     Ok(res)
 }
 
+#[tracing::instrument(skip_all)]
 async fn create_post(
     State((_, _, rmq_conn_pool, db_pool)): State<PostsRouteState>,
     req: Request,
 ) -> axum::response::Result<Html<String>> {
+    info!("uh1");
     use crate::models::post::CreatePost;
     use crate::schema::posts::dsl::*;
     use diesel_async::RunQueryDsl;
 
+    info!("uh1");
     let Form(f): Form<CreatePost> = req.extract().await.map_err(AppError::from)?;
     let mut conn = db_pool.get().await.map_err(AppError::from)?;
+    info!("uh2");
 
     let post = diesel::insert_into(posts)
         .values(f)
         .get_result::<Post>(&mut conn)
         .await
         .map_err(AppError::from)?;
+    info!("uh3");
 
-    let rmq_conn = rmq_conn_pool.get().await.map_err(AppError::from)?;
-    let channel = rmq_conn.create_channel().await.map_err(AppError::from)?;
+    let rmq_conn = rmq_conn_pool
+        .get()
+        .await
+        .map_err(AppError::from)
+        .inspect_err(|e| error!(%e))?;
+    info!("uh4");
+    let channel = rmq_conn
+        .create_channel()
+        .await
+        .map_err(AppError::from)
+        .inspect_err(|e| error!(%e))?;
+    info!("uh ok here we go");
     let confirmation = channel
         .basic_publish(
             "",
             "posts",
-            Default::default(),
+            BasicPublishOptions {
+                mandatory: true,
+                ..Default::default()
+            },
             serde_json::to_vec(&post)
+                .inspect_err(|e| error!(%e))
                 .map_err(AppError::from)?
                 .as_slice(),
             BasicProperties::default().with_content_type("application/json".into()),
         )
         .await
-        .map_err(AppError::from)?
+        .map_err(AppError::from)
+        .inspect_err(|e| error!(%e))?
         .await
+        .inspect_err(|e| error!(%e))
         .map_err(|e| Html(e.to_string()))?;
 
     match confirmation {
-        Confirmation::Ack(_) => (),
+        Confirmation::Ack(ack) => info!("acked {:?}", ack.map(|x| x.reply_text.to_string())),
         Confirmation::Nack(rnack) => {
             warn!("nacked {:?}", rnack.map(|nack| nack.reply_text.to_string()))
         }

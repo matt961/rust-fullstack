@@ -8,8 +8,7 @@ pub trait HttpTracingExt: tracing::Subscriber {
         self.with(
             filter::Targets::new()
                 .with_target("tower_http::trace::on_response", tracing::Level::TRACE)
-                .with_target("tower_http::trace::on_request", tracing::Level::TRACE)
-                .with_default(tracing::Level::INFO),
+                .with_target("tower_http::trace::on_request", tracing::Level::TRACE),
         )
     }
 }
