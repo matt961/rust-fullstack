@@ -108,7 +108,9 @@ async fn main() -> anyhow::Result<()> {
                         if e.kind
                             == notify::EventKind::Modify(notify::event::ModifyKind::Metadata(
                                 notify::event::MetadataKind::Any,
-                            )) =>
+                            ))
+                            || e.kind
+                                == notify::EventKind::Remove(notify::event::RemoveKind::File) =>
                     {
                         info!(?e, "tera file touched");
                         let s = self.tera.clone();
