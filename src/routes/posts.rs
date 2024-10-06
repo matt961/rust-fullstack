@@ -9,11 +9,11 @@ use axum::{extract::ws::Message, routing::get};
 use axum::{Form, RequestExt, Router};
 use futures_util::StreamExt;
 use lapin::options::BasicPublishOptions;
-use lapin::publisher_confirm::Confirmation;
 use lapin::BasicProperties;
+use macros::ert;
 use tera::Tera;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn, Instrument, Span};
+use tracing::{error, info, warn, Span};
 
 use crate::background::posts_broker::PostsSubscriptionManager;
 use crate::error::AppError;
@@ -53,6 +53,7 @@ async fn ws(
                     .read()
                     .await
                     .render("posts/ws_post.html", &ctx)
+                    .inspect_err(ert!())
                     .unwrap_or_default();
                 if let Err(e) = ws.send(Message::Ping(b"foo".to_vec())).await {
                     warn!(%e, "ws ping failed");
@@ -65,7 +66,7 @@ async fn ws(
                         let _ = sub_mgr
                             .unsubscribe(&id)
                             .ok_or_else(|| anyhow!("already unsubscribed: {}", &id))
-                            .inspect_err(|e| error!(%e));
+                            .inspect_err(ert!());
                         return;
                     }
                 };
@@ -81,36 +82,29 @@ async fn create_post(
     State((_, _, rmq_conn_pool, db_pool)): State<PostsRouteState>,
     req: Request,
 ) -> axum::response::Result<Html<String>> {
-    info!("uh1");
     use crate::models::post::CreatePost;
     use crate::schema::posts::dsl::*;
     use diesel_async::RunQueryDsl;
 
-    info!("uh1");
     let Form(f): Form<CreatePost> = req.extract().await.map_err(AppError::from)?;
     let mut conn = db_pool.get().await.map_err(AppError::from)?;
-    info!("uh2");
 
     let post = diesel::insert_into(posts)
         .values(f)
         .get_result::<Post>(&mut conn)
         .await
         .map_err(AppError::from)?;
-    info!("uh3");
 
-    let rmq_conn = rmq_conn_pool
+    let channel = rmq_conn_pool
         .get()
         .await
         .map_err(AppError::from)
-        .inspect_err(|e| error!(%e))?;
-    info!("uh4");
-    let channel = rmq_conn
+        .inspect_err(ert!())?
         .create_channel()
         .await
         .map_err(AppError::from)
-        .inspect_err(|e| error!(%e))?;
-    info!("uh ok here we go");
-    let confirmation = channel
+        .inspect_err(ert!())?;
+    channel
         .basic_publish(
             "",
             "posts",
@@ -119,25 +113,17 @@ async fn create_post(
                 ..Default::default()
             },
             serde_json::to_vec(&post)
-                .inspect_err(|e| error!(%e))
+                .inspect_err(ert!())
                 .map_err(AppError::from)?
                 .as_slice(),
             BasicProperties::default().with_content_type("application/json".into()),
         )
         .await
         .map_err(AppError::from)
-        .inspect_err(|e| error!(%e))?
+        .inspect_err(ert!())?
         .await
-        .inspect_err(|e| error!(%e))
+        .inspect_err(ert!())
         .map_err(|e| Html(e.to_string()))?;
-
-    match confirmation {
-        Confirmation::Ack(ack) => info!("acked {:?}", ack.map(|x| x.reply_text.to_string())),
-        Confirmation::Nack(rnack) => {
-            warn!("nacked {:?}", rnack.map(|nack| nack.reply_text.to_string()))
-        }
-        Confirmation::NotRequested => warn!("wut"),
-    };
 
     Ok(Html(format!("<pre>{:?}</pre>", post)))
 }

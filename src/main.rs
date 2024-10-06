@@ -14,7 +14,6 @@ use std::time::Duration;
 use axum::http::header;
 use axum::Router;
 
-use config::tracing::HttpTracingExt;
 use config::Env;
 use diesel::Connection;
 use diesel_async::pooled_connection::deadpool as diesel_deadpool;

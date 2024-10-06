@@ -1,5 +1,3 @@
-pub mod tracing;
-
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

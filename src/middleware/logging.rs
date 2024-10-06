@@ -17,6 +17,7 @@ where
                 .on_request(|request: &axum::http::Request<_>, _span: &Span| {
                     tracing::info!(target: "tower_http",
                         parent: _span,
+                        method = ?request.method().as_str(),
                         path = ?request.uri().path_and_query().unwrap().as_str());
                 })
                 .on_response(|response: &axum::http::Response<_>, _, _span: &Span| {

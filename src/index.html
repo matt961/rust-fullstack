@@ -36,6 +36,23 @@
     <div id="ws-posts" class="ws-posts" hx-ext="ws" ws-connect="/posts/ws">
     </div>
   </div>
+
+  <div class="component-create-post component flex flex-col mx-16">
+    <form class="flex flex-col items-center component px-8" id="create-post-form" hx-post="/posts" hx-target="this"
+      hx-swap="afterend">
+      <label for="user_id">User ID</label>
+      <input class="i-form-input" name="user_id" type="number" />
+
+      <label for="post_content">Post content</label>
+      <textarea rows="5" cols="48" name="post_content"></textarea>
+
+      <button
+        class="h-10 w-fit px-4 my-4 font-semibold rounded-md bg-black hover:bg-gray-700 transition-colors duration-100 ease-in-out text-white"
+        type="submit">
+        Create post
+      </button>
+    </form>
+  </div>
 </body>
 
 </html>
