@@ -10,6 +10,8 @@ anyhow = { version = "1" }
 
 tokio = { version = "1.0", features = ["full"] }
 
+bytes = { version = "*" }
+
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-forest = { version = "0.1.6", features = ["full"] }

@@ -3,7 +3,6 @@
 use std::{any::type_name, fmt::Debug, hash::Hash, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Error;
-use deadpool_lapin::Timeouts;
 use futures::{StreamExt, TryStreamExt};
 use futures_util::{future, Future};
 use lapin::{
@@ -16,6 +15,7 @@ use dashmap;
 use tracing::{error, info, info_span, instrument, warn, Instrument, Span};
 use uuid::Uuid;
 
+use macros::ert;
 use crate::error::AppError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +144,7 @@ impl PostsBroker {
 
         info!("ahhhhhh");
         info!("get conn");
-        let mut q_conn = self.q_pool.get().await.inspect_err(|e| error!(%e))?;
+        let mut q_conn = self.q_pool.get().await.inspect_err(ert!())?;
         info!("get chan");
         let mut chan = q_conn.create_channel().await?;
         info!("chan id: {}", chan.id());
@@ -159,11 +159,11 @@ impl PostsBroker {
                 Default::default(),
             )
             .await
-            .inspect_err(|e| error!(%e))?;
+            .inspect_err(ert!())?;
 
         consumer
             .into_stream()
-            .inspect_err(|e| error!(%e))
+            .inspect_err(ert!())
             .inspect_ok(|_| info!("new new!"))
             // ensure delivery success
             .filter_map(|maybe_delivery| {
@@ -178,7 +178,7 @@ impl PostsBroker {
                 delivery
                     .ack(Default::default())
                     .await
-                    .inspect_err(|e| error!(%e))
+                    .inspect_err(ert!())
                     .ok();
                 info!("acked");
                 let content_type = delivery
@@ -194,12 +194,12 @@ impl PostsBroker {
             })
             .filter_map(|delivery| async move {
                 let v = std::str::from_utf8(&delivery.data)
-                    .inspect_err(|e| error!(%e))
+                    .inspect_err(ert!())
                     .map_err(Error::from)
                     .and_then(|d| {
                         serde_json::Value::from_str(d)
                             .map_err(Error::from)
-                            .inspect_err(|e| error!(%e))
+                            .inspect_err(ert!())
                     });
                 info!("deserialized");
 

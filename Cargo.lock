@@ -3553,6 +3553,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "axum-macros",
+ "bytes",
  "dashmap",
  "deadpool",
  "deadpool-lapin",

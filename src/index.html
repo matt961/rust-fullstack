@@ -8,50 +8,60 @@
   <link rel="stylesheet" href="main.css" />
 </head>
 
-<body>
+<body class="h-screen w-screen">
 
-  <h1 class="text-3xl">Big user site!</h1>
+  <h1 class="flex flex-row text-3xl">Big user site!</h1>
 
-  <div class="user-list-component flex flex-col component px-4" id="user-list-component" hx-get="/users"
-    hx-trigger="load" hx-swap="innerHTML">
-  </div>
+  <div class="flex flex-row">
 
-  <div class="user-create-component" id="user-create-component">
-    <form class="flex flex-col items-center component px-8" id="user-create-form" hx-post="/users" hx-target="this"
-      hx-swap="afterend">
-      <label for="email">Email</label>
-      <input class="i-form-input" name="email" type="email" />
-      <label for="password">Password</label>
-      <input class="i-form-input" name="password" type="password" />
-
-      <button
-        class="h-10 w-fit px-4 my-4 font-semibold rounded-md bg-black hover:bg-gray-700 transition-colors duration-100 ease-in-out text-white"
-        type="submit">
-        Create user
-      </button>
-    </form>
-  </div>
-
-  <div class="component-posts component flex flex-col mx-16">
-    <div id="ws-posts" class="ws-posts" hx-ext="ws" ws-connect="/posts/ws">
+    <div class="user-list-component overflow-y-scroll flex-auto" id="user-list-component"
+      hx-get="/users" hx-trigger="load" hx-swap="innerHTML">
     </div>
-  </div>
 
-  <div class="component-create-post component flex flex-col mx-16">
-    <form class="flex flex-col items-center component px-8" id="create-post-form" hx-post="/posts" hx-target="this"
-      hx-swap="afterend">
-      <label for="user_id">User ID</label>
-      <input class="i-form-input" name="user_id" type="number" />
+    <div class="flex-auto">
+      <div class="flex flex-col">
+        <div class="user-create-component flex-auto" id="user-create-component">
+          <form class="flex flex-col items-center component" id="user-create-form" hx-post="/users" hx-target="this"
+            hx-swap="afterend">
+            <label for="email">Email</label>
+            <input class="i-form-input" name="email" type="email" />
+            <label for="password">Password</label>
+            <input class="i-form-input" name="password" type="password" />
 
-      <label for="post_content">Post content</label>
-      <textarea rows="5" cols="48" name="post_content"></textarea>
+            <button
+              class="h-10 w-fit my-4 font-semibold rounded-md bg-black hover:bg-gray-700 transition-colors duration-100 ease-in-out text-white"
+              type="submit">
+              Create user
+            </button>
+          </form>
+        </div>
 
-      <button
-        class="h-10 w-fit px-4 my-4 font-semibold rounded-md bg-black hover:bg-gray-700 transition-colors duration-100 ease-in-out text-white"
-        type="submit">
-        Create post
-      </button>
-    </form>
+        <div class="component-posts component hidden">
+          <div id="ws-posts" class="ws-posts" hx-ext="ws" ws-connect="/posts/ws">
+          </div>
+        </div>
+
+        <div class="component-create-post component flex-auto">
+          <form class="flex flex-col items-center component" id="create-post-form" hx-post="/posts"
+            hx-target="#create-post-response" hx-swap="innerHtml">
+            <label for="user_id">User ID</label>
+            <input class="i-form-input" name="user_id" type="number" />
+
+            <label for="post_content">Post content</label>
+            <textarea rows="5" cols="32" name="post_content"></textarea>
+
+            <button
+              class="h-10 w-fit my-4 font-semibold rounded-md bg-black hover:bg-gray-700 transition-colors duration-100 ease-in-out text-white"
+              type="submit">
+              Create post
+            </button>
+          </form>
+        </div>
+
+        <div class="flex-auto mx-6" id="create-post-response">
+        </div>
+      </div>
+    </div>
   </div>
 </body>
 

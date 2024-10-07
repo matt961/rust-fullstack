@@ -1,0 +1,20 @@
+<div>
+	<ul class="list-disc">
+		<li><strong>Post ID: {{ post.id }}</strong></li>
+		<li>
+			<ul>
+				<li>User ID: {{ post.user_id }}</li>
+				<li>
+					{{ post.post_content }}
+				</li>
+				<li>
+					<ul>
+						{% for tag in post.tags -%}
+							<li>{{ tag }}</li>
+						{% endfor -%}
+					</ul>
+				</li>
+			</ul>
+		</li>
+	</ul>
+</div>

@@ -7,6 +7,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::post;
 use axum::{extract::ws::Message, routing::get};
 use axum::{Form, RequestExt, Router};
+use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use lapin::options::BasicPublishOptions;
 use lapin::BasicProperties;
@@ -79,9 +80,9 @@ async fn ws(
 
 #[tracing::instrument(skip_all)]
 async fn create_post(
-    State((_, _, rmq_conn_pool, db_pool)): State<PostsRouteState>,
+    State((tera, _, rmq_conn_pool, db_pool)): State<PostsRouteState>,
     req: Request,
-) -> axum::response::Result<Html<String>> {
+) -> axum::response::Result<Html<impl Into<axum::body::Body>>> {
     use crate::models::post::CreatePost;
     use crate::schema::posts::dsl::*;
     use diesel_async::RunQueryDsl;
@@ -125,7 +126,15 @@ async fn create_post(
         .inspect_err(ert!())
         .map_err(|e| Html(e.to_string()))?;
 
-    Ok(Html(format!("<pre>{:?}</pre>", post)))
+    let mut teractx = tera::Context::new();
+    teractx.insert("post", &serde_json::to_value(&post).map_err(AppError::from)?);
+    let body = 
+    tera.read()
+        .await
+        .render("posts/create_post.html", &teractx)
+        .inspect_err(ert!())
+        .map_err(AppError::from)?;
+    Ok(Html(Bytes::from(body)))
 }
 
 pub fn router() -> Router<PostsRouteState> {
