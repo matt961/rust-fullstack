@@ -1,4 +1,5 @@
-use axum::async_trait;
+use std::future::Future;
+
 use diesel::prelude::*;
 
 use crate::models::user::*;
@@ -8,10 +9,9 @@ use crate::schema;
 
 use super::{Pool, Svc};
 
-#[async_trait]
 pub trait UserService<E = anyhow::Error>: Svc {
-    async fn get_users(&self, offset: i32, limit: i64) -> Result<Vec<User>, E>;
-    async fn create_user(&self, user: &CreateUser) -> Result<User, E>;
+    fn get_users(&self, offset: i32, limit: i64) -> impl Future<Output = Result<Vec<User>, E>> + Send;
+    fn create_user(&self, user: &CreateUser) -> impl Future<Output = Result<User, E>> + Send;
 }
 
 #[derive(Clone)]
@@ -21,7 +21,6 @@ pub struct UserServiceDb {
 
 impl Svc for UserServiceDb {}
 
-#[async_trait]
 impl UserService<anyhow::Error> for UserServiceDb {
     async fn get_users(&self, offset: i32, limit: i64) -> anyhow::Result<Vec<User>> {
         use schema::users::dsl::*;

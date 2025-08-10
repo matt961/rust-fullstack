@@ -11,16 +11,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::http::header;
 use axum::Router;
+use axum::http::header;
 
 use config::Env;
 use diesel::Connection;
+use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::pooled_connection::deadpool as diesel_deadpool;
 use diesel_async::pooled_connection::deadpool::Hook;
-use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 
-use figment::{providers::Format, Figment};
+use figment::{Figment, providers::Format};
 
 use error::AppError;
 use notify::Watcher;
@@ -33,7 +33,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::*;
 use tracing_forest::ForestLayer;
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, prelude::*};
 
 use crate::background::posts_broker::PostsBroker;
 use crate::middleware::logging::HttpLoggingExt;
@@ -73,7 +73,6 @@ async fn main() -> anyhow::Result<()> {
                 Box::pin(std::future::ready(Ok(())))
             })
         }))
-        .runtime(deadpool::Runtime::Tokio1)
         .build()?;
 
     const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
@@ -160,7 +159,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let app = Router::new()
-        .nest_service(
+        .route_service(
             "/",
             ServiceBuilder::new()
                 .layer(SetResponseHeaderLayer::if_not_present(

@@ -5,16 +5,16 @@ use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Request, State};
 use axum::response::{Html, IntoResponse};
 use axum::routing::post;
-use axum::{extract::ws::Message, routing::get};
 use axum::{Form, RequestExt, Router};
-use bytes::{Bytes, BytesMut};
+use axum::{extract::ws::Message, routing::get};
+use bytes::Bytes;
 use futures_util::StreamExt;
-use lapin::options::BasicPublishOptions;
 use lapin::BasicProperties;
+use lapin::options::BasicPublishOptions;
 use macros::ert;
 use tera::Tera;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn, Span};
+use tracing::{Span, error, info, warn};
 
 use crate::background::posts_broker::PostsSubscriptionManager;
 use crate::error::AppError;
@@ -56,11 +56,11 @@ async fn ws(
                     .render("posts/ws_post.html", &ctx)
                     .inspect_err(ert!())
                     .unwrap_or_default();
-                if let Err(e) = ws.send(Message::Ping(b"foo".to_vec())).await {
+                if let Err(e) = ws.send(Message::Ping(Bytes::from_static(b"foo"))).await {
                     warn!(%e, "ws ping failed");
                     continue;
                 }
-                match ws.send(Message::Text(html)).await {
+                match ws.send(Message::Text(html.into())).await {
                     Ok(_) => (),
                     Err(e) => {
                         warn!(%e, "ws died");
@@ -82,7 +82,7 @@ async fn ws(
 async fn create_post(
     State((tera, _, rmq_conn_pool, db_pool)): State<PostsRouteState>,
     req: Request,
-) -> axum::response::Result<Html<impl Into<axum::body::Body>>> {
+) -> axum::response::Result<Html<Bytes>> {
     use crate::models::post::CreatePost;
     use crate::schema::posts::dsl::*;
     use diesel_async::RunQueryDsl;
@@ -126,10 +126,13 @@ async fn create_post(
         .inspect_err(ert!())
         .map_err(|e| Html(e.to_string()))?;
 
-    let mut teractx = tera::Context::new();
-    teractx.insert("post", &serde_json::to_value(&post).map_err(AppError::from)?);
-    let body = 
-    tera.read()
+    let teractx =
+        tera::Context::from_value(serde_json::json!({"post": post})).map_err(|e| AppError {
+            inner: anyhow!("could not template response: {}", e),
+        })?;
+
+    let body = tera
+        .read()
         .await
         .render("posts/create_post.html", &teractx)
         .inspect_err(ert!())

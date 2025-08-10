@@ -1,6 +1,7 @@
 use axum::{http::Method, Router};
 use tower_http::cors::{self, CorsLayer};
 
+#[allow(dead_code)]
 pub trait CorsExt<S> {
     fn with_cors(self) -> Router<S>;
 }
